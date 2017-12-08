@@ -12,6 +12,8 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Message;
 import android.provider.DocumentsContract;
 import android.provider.MediaStore;
 import android.speech.tts.TextToSpeech;
@@ -38,6 +40,22 @@ public class MainActivity extends AppCompatActivity {
     private TextSpeaker mTextSpeaker;
     private String path;
 
+    StringBuffer mContentBuffer = new StringBuffer();
+
+    public static final int MSG_READ_FILE_COMPLETED = 100;
+    private Handler mHandler = new Handler() {
+        @Override
+        public void handleMessage(Message msg) {
+            super.handleMessage(msg);
+            Log.d(TAG, "msg.what: " + msg.what + " ,msg.obg: " + msg.obj);
+            switch (msg.what) {
+                case MSG_READ_FILE_COMPLETED:
+                    mTextContent.setText(mContentBuffer.toString());//在主线程中更新UI操作
+                    break;
+            }
+        }
+    };
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -45,6 +63,7 @@ public class MainActivity extends AppCompatActivity {
         init();
         requestWritePermission();
     }
+
     private void requestWritePermission(){
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if(checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)!= PackageManager.PERMISSION_GRANTED){
@@ -130,7 +149,7 @@ public class MainActivity extends AppCompatActivity {
             if ("file".equalsIgnoreCase(uri.getScheme())) {//使用第三方应用打开
                 path = uri.getPath();
                 Toast.makeText(this, path + "11111", Toast.LENGTH_SHORT).show();
-            }else if (Build.VERSION.SDK_INT > Build.VERSION_CODES.KITKAT) {//4.4以后
+            } else if (Build.VERSION.SDK_INT > Build.VERSION_CODES.KITKAT) {//4.4以后
                 path = getPath(this, uri);
                 Toast.makeText(this, path, Toast.LENGTH_SHORT).show();
             } else {//4.4以下下系统调用方法
@@ -138,7 +157,15 @@ public class MainActivity extends AppCompatActivity {
                 Toast.makeText(MainActivity.this, path + "222222", Toast.LENGTH_SHORT).show();
             }
             mTextPath.setText(path);
-            readFile(path);
+            Thread thread = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    readFile(path);//在子线程中执耗时任务
+                    mHandler.sendEmptyMessage(MSG_READ_FILE_COMPLETED);//执行完成需要通知UI线程时调用以下方法
+                    //mHandler.obtainMessage(MSG_READ_FILE_COMPLETED).sendToTarget();//执行完成需要通知UI线程时调用以下方法
+                }
+            });
+            thread.start();//开启子线程
         }
     }
 
@@ -149,16 +176,13 @@ public class MainActivity extends AppCompatActivity {
         if (!openFile.exists()) {
             return;
         }
-        StringBuffer textContent = new StringBuffer();
         try {
             BufferedReader br = new BufferedReader(new FileReader(openFile));
             String line = br.readLine();
             while (line != null) {
                 Log.d(TAG, "openFile readLine:" + line);
                 mTextSpeaker.speak(line);
-                textContent.append(line);
-                mTextContent.setText(textContent.toString());
-                //mTextContent.setText(line);
+                mContentBuffer.append(line);
                 line = br.readLine();
             }
             br.close();
